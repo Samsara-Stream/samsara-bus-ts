@@ -4,15 +4,17 @@
   "description": "TypeScript/RxJS-based multi-topics message/event bus ecosystem",
   "private": true,
   "workspaces": [
-    "packages/*"
+  "packages/*",
+  "packages/*/examples/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+  "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "lint": "eslint packages/*/src/**/*.ts",
     "format": "prettier --write packages/*/src/**/*.ts",
     "clean": "npm run clean --workspaces",
-    "dev": "npm run dev --workspaces --if-present"
+  "dev": "npm run dev --workspaces --if-present",
+  "dev:chat": "npm run dev --workspace samsara-bus-react-chat-example"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

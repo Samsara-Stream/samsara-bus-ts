@@ -21,26 +21,14 @@ The core message bus implementation that provides:
 - **Message Correlation**: Track related messages across different topics
 - **Global & Local Bus Options**: Use singleton or local instances as needed
 
-### 🔄 [samsara-bus-exchange-ts](./packages/samsara-bus-exchange-ts/) (Future)
+### ⚛️ [samsara-bus-react](./packages/samsara-bus-react/)
 
-Exchange pattern annotations and helpers that add request-response capabilities:
+React integration for the core bus, providing:
 
-- **Decorator-based code generation** for Exchange clients and services
-- **Type-safe request/response** communication
-- **Timeout support** with configurable defaults and per-method overrides
-- **Error handling** across service boundaries
-- **Concurrent request** support
-- **Automatic serialization/deserialization** of data
-
-### ⚙️ [samsara-bus-generator-ts](./packages/samsara-bus-generator-ts/) (Future)
-
-Code generator that creates implementations from decorated interfaces:
-
-- **Automatic code generation** from decorated interfaces
-- **Type-safe client proxies** that handle serialization/deserialization
-- **Service wrappers** that integrate with the Exchange Pattern
-- **Support for all TypeScript primitive types** and custom serializable objects
-- **Build-time generation** with minimal runtime overhead
+- **SamsaraBusProvider**: Context provider to share a bus across components
+- **useSamsaraTopic**: Hook to subscribe/emit to a topic as React state
+- **useSamsaraTopology**: Hook to build RxJS processing pipelines as state
+- **Vite examples**: Chat and Dashboard apps under `packages/samsara-bus-react/examples`
 
 ## Getting Started
 
