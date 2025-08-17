@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DefaultSamsaraBus, TopicType } from 'samsara-bus-ts';
-import { SamsaraBusProvider, useSamsaraTopic, useSamsaraTopology } from 'samsara-bus-react';
+import { SamsaraBusProvider, useSamsaraTopic, useSamsaraTopology, TopologyDefinition } from 'samsara-bus-react';
 import { v4 as uuidv4 } from 'uuid';
 import { filter, map } from 'rxjs/operators';
 
@@ -40,11 +40,7 @@ function defaultSeed() {
 }
 
 function ChatRoomComponent({ roomId }: { roomId: string }) {
-  const enrichedMessages = useSamsaraTopology<{
-    message: ChatMessage;
-    isUserOnline: boolean;
-    userCount: number;
-  }>({
+  const topology: TopologyDefinition = {
     nodes: {
       'messages': { type: 'topic', topicName: 'chat-messages' },
       'userStatus': { type: 'topic', topicName: 'user-status' },
@@ -69,6 +65,8 @@ function ChatRoomComponent({ roomId }: { roomId: string }) {
         type: 'processor',
         id: 'enrichMessages',
         inputs: ['roomMessages', 'userStatus', 'currentRoom'],
+        // Demonstrates custom combiner: emit on new roomMessages, pair with latest status and room
+        combiner: 'withLatestFrom',
         processor: (combinedStream) => combinedStream.pipe(
           map(([message, userStatus, room]: [ChatMessage, UserStatus, ChatRoom]) => ({
             message,
@@ -79,7 +77,13 @@ function ChatRoomComponent({ roomId }: { roomId: string }) {
       }
     },
     output: 'enricher'
-  });
+  };
+
+  const enrichedMessages = useSamsaraTopology<{
+    message: ChatMessage;
+    isUserOnline: boolean;
+    userCount: number;
+  }>(topology);
 
   return (
     <div className="chat-room" style={{ border: '1px solid #ccc', padding: 16, marginBottom: 16 }}>

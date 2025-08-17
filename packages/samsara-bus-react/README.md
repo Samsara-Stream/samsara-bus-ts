@@ -145,6 +145,68 @@ Processes multiple topics through a stream processing pipeline.
 **Returns:**
 - The current processed result
 
+### Combining multiple inputs (custom combiner)
+
+When a processor node has multiple `inputs`, inputs are combined using RxJS. The default combiner is `combineLatest`.
+
+You can customize this per processor with the optional `combiner` field:
+
+- `'combineLatest'` (default)
+- `'zip'`
+- `'merge'`
+- `'withLatestFrom'` (emit on first input, pair with latest of others)
+- custom function `(inputs: Observable[]) => Observable`
+
+Example (using `withLatestFrom`):
+
+```ts
+const topology = {
+  nodes: {
+    roomMessages: { type: 'topic', topicName: 'chat-messages' },
+    userStatus: { type: 'topic', topicName: 'user-status' },
+    currentRoom: { type: 'topic', topicName: 'chat-rooms' },
+    enricher: {
+      type: 'processor',
+      id: 'enrichMessages',
+      inputs: ['roomMessages', 'userStatus', 'currentRoom'],
+      combiner: 'withLatestFrom',
+      processor: (s$) => s$.pipe(
+        map(([message, user, room]) => ({ message, user, room }))
+      )
+    }
+  },
+  output: 'enricher'
+};
+```
+
+or to use a custom function:
+
+```ts
+// ...existing code...
+import { combineLatest, debounceTime, map as rxMap, withLatestFrom as rxWithLatestFrom } from 'rxjs';
+// ...existing code...
+      'enricher': {
+        type: 'processor',
+        id: 'enrichMessages',
+        inputs: ['roomMessages', 'userStatus', 'currentRoom'],
+        combiner: (inputs$) => {
+          const [msg$, user$, room$] = inputs$;
+          return msg$.pipe(
+            debounceTime(20),
+            rxWithLatestFrom(user$, room$)
+          );
+        },
+        processor: (s$) => s$.pipe(
+          map(([message, userStatus, room]: [ChatMessage, UserStatus, ChatRoom]) => ({
+            message,
+            isUserOnline: userStatus?.user === message.user && userStatus?.online,
+            userCount: room?.participants?.length || 0
+          }))
+        )
+      }
+// ...existing code...
+```
+
 ### Topology Definition
 
 A topology consists of nodes and defines the output:
@@ -186,6 +248,7 @@ npm run dev
 ```
 
 Both examples alias the local packages for instant iteration without publishing.
+The chat example demonstrates `withLatestFrom` as a custom combiner; the dashboard uses `zip`.
 
 ## Best Practices
 

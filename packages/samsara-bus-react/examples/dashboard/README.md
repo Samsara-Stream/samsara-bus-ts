@@ -29,4 +29,4 @@ This example shows a small analytics dashboard powered by `samsara-bus-ts` and t
 - `useSamsaraTopology` builds nodes:
   - `stats`: running count/sum/peak for metrics
   - `alertStats`: running alert count
-  - `combiner`: merges both into a single analytics state used by the UI
+  - `combiner`: uses `zip` as a custom combiner to pair stats and alertCount by index

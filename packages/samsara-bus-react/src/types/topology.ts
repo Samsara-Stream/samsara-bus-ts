@@ -5,11 +5,19 @@ export interface TopicSourceNode {
   topicName: string;
 }
 
+export type TopologyCombiner =
+  | 'combineLatest'
+  | 'zip'
+  | 'merge'
+  | 'withLatestFrom'
+  | ((inputs: Observable<any>[]) => Observable<any>);
+
 export interface StreamProcessorNode<TInput = any, TOutput = any> {
   type: 'processor';
   id: string;
   processor: (input: Observable<TInput>) => Observable<TOutput>;
   inputs: string[];
+  combiner?: TopologyCombiner;
 }
 
 export type TopologyNode = TopicSourceNode | StreamProcessorNode;

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Observable, combineLatest, EMPTY } from 'rxjs';
+import { Observable, combineLatest, EMPTY, zip, merge } from 'rxjs';
+import { withLatestFrom } from 'rxjs/operators';
 import { useSamsaraBus } from '../context/samsara-bus-context';
-import { TopologyDefinition, TopologyNode, StreamProcessorNode, TopicSourceNode } from '../types/topology';
+import { TopologyDefinition, TopologyNode, StreamProcessorNode, TopicSourceNode, TopologyCombiner } from '../types/topology';
 
 export interface UseSamsaraTopologyOptions {
   initialValue?: any;
@@ -17,6 +18,27 @@ export function useSamsaraTopology<T>(
   const processedStream = useMemo(() => {
     const nodeStreams = new Map<string, Observable<any>>();
     const processedNodes = new Set<string>();
+
+    const combineInputs = (inputs: Observable<any>[], combiner?: TopologyCombiner): Observable<any> => {
+      if (inputs.length === 0) return EMPTY;
+      if (inputs.length === 1) return inputs[0];
+
+      if (typeof combiner === 'function') {
+        return combiner(inputs);
+      }
+
+      switch (combiner) {
+        case 'zip':
+          return zip(...inputs);
+        case 'merge':
+          return merge(...inputs);
+        case 'withLatestFrom':
+          return inputs[0].pipe(withLatestFrom(...inputs.slice(1)));
+        case 'combineLatest':
+        default:
+          return combineLatest(inputs);
+      }
+    };
 
     const processNode = (nodeId: string): Observable<any> => {
       if (nodeStreams.has(nodeId)) {
@@ -42,14 +64,9 @@ export function useSamsaraTopology<T>(
           return EMPTY;
         }
 
-        if (processorNode.inputs.length === 1) {
-          const inputStream = processNode(processorNode.inputs[0]);
-          stream = processorNode.processor(inputStream);
-        } else {
-          const inputStreams = processorNode.inputs.map(inputId => processNode(inputId));
-          const combinedInput = combineLatest(inputStreams);
-          stream = processorNode.processor(combinedInput);
-        }
+  const inputStreams = processorNode.inputs.map(inputId => processNode(inputId));
+  const combinedInput = combineInputs(inputStreams, processorNode.combiner);
+  stream = processorNode.processor(combinedInput);
       } else {
         console.error(`Unknown node type for node ${nodeId}`);
         return EMPTY;

@@ -29,5 +29,5 @@ This example shows a minimal chat application powered by `samsara-bus-ts` and th
 - `useSamsaraTopology` builds nodes:
   - `roomMessages`: filter messages for `roomId`
   - `currentRoom`: pick the active room object
-  - `enricher`: combine latest of the above with `user-status` to annotate messages with `isUserOnline` and `userCount`
+  - `enricher`: uses `withLatestFrom` as a custom combiner to emit on new `roomMessages` while pairing with the latest `user-status` and `chat-rooms` to annotate messages with `isUserOnline` and `userCount`
 - `MessageComposer` emits new messages into `chat-messages`

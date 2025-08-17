@@ -60,7 +60,9 @@ function MetricsOverview() {
       'combiner': {
         type: 'processor',
         id: 'combineAnalytics',
-        inputs: ['stats', 'alertStats'],
+  inputs: ['stats', 'alertStats'],
+  // Example of custom combiner: pair by index using zip
+  combiner: 'zip',
         processor: (combinedStream) => combinedStream.pipe(
           map(([stats, alertCount]) => ({
             totalEvents: stats.totalEvents,
