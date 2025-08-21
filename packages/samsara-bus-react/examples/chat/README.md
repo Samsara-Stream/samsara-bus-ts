@@ -1,33 +1,42 @@
-# Chat Example (samsara-bus-react)
+# Chat Example
 
-This example shows a minimal chat application powered by `samsara-bus-ts` and the React hooks in `samsara-bus-react`.
+This example demonstrates the fluent topology API for `samsara-bus-react`.
 
-## What it demonstrates
-- Using `SamsaraBusProvider` to provide a bus instance
-- `useSamsaraTopic` for reading/emitting topic values (user status, chat rooms, messages)
-- `useSamsaraTopology` to build a small processing pipeline that filters room messages and enriches them with room/user data
+## Features Demonstrated
 
-## Files
-- `App.tsx` – main UI and logic using the hooks
-- `index.html`, `src/main.tsx` – Vite bootstrap files
-- `vite.config.ts` – aliases the local packages for instant dev
+- **Type-safe processor definitions** with `defineProcessor`
+- **Fluent topology builder** with typed parameters
+- **Real-time stream processing** with multiple combiners
+- **Parameter injection** for reusable topologies
+- **SKIP sentinel** for typed filtering
+- **Status tracking** with loading/success/error states
 
-## Run locally
-- From the repo root:
-  ```bash
-  npm install
-  ```
-- Start the dev server:
-  ```bash
-  cd packages/samsara-bus-react/examples/chat
-  npm run dev
-  ```
-- Open http://localhost:5173
+## Key Components
 
-## How it works (short)
-- Topics registered: `chat-messages` (ReplaySubject), `user-status` (BehaviorSubject), `chat-rooms` (BehaviorSubject)
-- `useSamsaraTopology` builds nodes:
-  - `roomMessages`: filter messages for `roomId`
-  - `currentRoom`: pick the active room object
-  - `enricher`: uses `withLatestFrom` as a custom combiner to emit on new `roomMessages` while pairing with the latest `user-status` and `chat-rooms` to annotate messages with `isUserOnline` and `userCount`
-- `MessageComposer` emits new messages into `chat-messages`
+### Processors
+- `roomMessages` - Filters messages by room ID
+- `currentRoom` - Finds the current room by ID  
+- `enrichMessages` - Combines messages with user status and room info
+
+### Topology
+The `ChatRoomEnriched` topology demonstrates:
+- Parameter definition with validation
+- Topic binding to message bus
+- Processor composition with `withLatestFrom` combiner
+- Explicit output specification
+
+### React Integration
+The `useSamsaraTopology` hook provides:
+- Typed data/error/status results
+- Parameter validation
+- Automatic subscription management
+
+## Running the Example
+
+```bash
+cd examples/chat
+npm install
+npm run dev
+```
+
+The application will show two chat rooms with real-time message enrichment, demonstrating how the new fluent API provides better type safety and composability.

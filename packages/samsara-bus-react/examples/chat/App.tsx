@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { DefaultSamsaraBus, TopicType } from 'samsara-bus-ts';
-import { SamsaraBusProvider, useSamsaraTopic, useSamsaraTopology, TopologyDefinition } from 'samsara-bus-react';
+import { SamsaraBusProvider, useSamsaraTopic, useSamsaraTopology, defineProcessor, topology } from 'samsara-bus-react';
 import { v4 as uuidv4 } from 'uuid';
-import { filter, map } from 'rxjs/operators';
 
 // Types
 interface ChatMessage {
@@ -25,130 +24,359 @@ interface ChatRoom {
   participants: string[];
 }
 
+interface EnrichedMessage {
+  message: ChatMessage;
+  isUserOnline: boolean;
+  userCount: number;
+}
+
+// Define processors using the new fluent API
+const roomMessages = defineProcessor({
+  id: 'roomMessages',
+  inputs: ['messages'] as const,
+  fn: (msg: ChatMessage, params: { roomId: string }) =>
+    msg.room === params.roomId ? msg : defineProcessor.SKIP
+});
+
+const currentRoom = defineProcessor({
+  id: 'currentRoom',
+  inputs: ['rooms'] as const,
+  fn: (room: ChatRoom, params: { roomId: string }) =>
+    room.id === params.roomId ? room : defineProcessor.SKIP
+});
+
+const enrichMessages = defineProcessor({
+  id: 'enrichMessages',
+  inputs: ['roomMessages', 'userStatus', 'currentRoom'] as const,
+  combiner: 'withLatestFrom',
+  fn: (message: ChatMessage, user: UserStatus, room: ChatRoom): EnrichedMessage => ({
+    message,
+    isUserOnline: user?.user === message.user && user?.online,
+    userCount: room?.participants?.length ?? 0
+  })
+});
+
+// Define topology using fluent builder
+const ChatRoomEnriched = topology('ChatRoomEnriched')
+  .param('roomId', (t) => t.string())
+  .topic('messages', 'chat-messages')
+  .topic('userStatus', 'user-status')
+  .topic('rooms', 'chat-rooms')
+  .proc(roomMessages)
+  .proc(currentRoom)
+  .proc(enrichMessages)
+  .output('enrichMessages')
+  .build();
+
 // Setup bus and topics
 const bus = new DefaultSamsaraBus();
 bus.registerTopic<ChatMessage>('chat-messages', TopicType.ReplaySubject, 50);
 bus.registerTopic<UserStatus>('user-status', TopicType.BehaviorSubject);
 bus.registerTopic<ChatRoom>('chat-rooms', TopicType.BehaviorSubject);
 
-// Seed initial room and user status
-defaultSeed();
-function defaultSeed() {
-  bus.emit('chat-rooms', { id: 'general', name: 'General', participants: ['alice', 'bob'] });
+// Seed initial data
+function seedData() {
+  // Create rooms
+  bus.emit('chat-rooms', { id: 'general', name: 'General', participants: ['alice', 'bob', 'charlie'] });
+  bus.emit('chat-rooms', { id: 'dev-team', name: 'Dev Team', participants: ['alice', 'bob'] });
+  
+  // Set user statuses
   bus.emit('user-status', { user: 'alice', online: true, lastSeen: new Date() });
   bus.emit('user-status', { user: 'bob', online: true, lastSeen: new Date() });
+  bus.emit('user-status', { user: 'charlie', online: false, lastSeen: new Date(Date.now() - 300000) });
+  
+  // Add some initial messages
+  bus.emit('chat-messages', {
+    id: uuidv4(),
+    user: 'alice',
+    text: 'Hello everyone! 👋',
+    timestamp: new Date(Date.now() - 120000),
+    room: 'general'
+  });
+  
+  bus.emit('chat-messages', {
+    id: uuidv4(),
+    user: 'bob',
+    text: 'Hey Alice! How are you?',
+    timestamp: new Date(Date.now() - 60000),
+    room: 'general'
+  });
+  
+  bus.emit('chat-messages', {
+    id: uuidv4(),
+    user: 'alice',
+    text: 'Working on the new fluent API. Check this out!',
+    timestamp: new Date(Date.now() - 30000),
+    room: 'dev-team'
+  });
 }
 
 function ChatRoomComponent({ roomId }: { roomId: string }) {
-  const topology: TopologyDefinition = {
-    nodes: {
-      'messages': { type: 'topic', topicName: 'chat-messages' },
-      'userStatus': { type: 'topic', topicName: 'user-status' },
-      'rooms': { type: 'topic', topicName: 'chat-rooms' },
-      'roomMessages': {
-        type: 'processor',
-        id: 'filterRoomMessages',
-        inputs: ['messages'],
-        processor: (stream) => stream.pipe(
-          filter((msg: ChatMessage) => msg.room === roomId)
-        )
-      },
-      'currentRoom': {
-        type: 'processor',
-        id: 'getCurrentRoom',
-        inputs: ['rooms'],
-        processor: (stream) => stream.pipe(
-          filter((room: ChatRoom) => room.id === roomId)
-        )
-      },
-      'enricher': {
-        type: 'processor',
-        id: 'enrichMessages',
-        inputs: ['roomMessages', 'userStatus', 'currentRoom'],
-        // Demonstrates custom combiner: emit on new roomMessages, pair with latest status and room
-        combiner: 'withLatestFrom',
-        processor: (combinedStream) => combinedStream.pipe(
-          map(([message, userStatus, room]: [ChatMessage, UserStatus, ChatRoom]) => ({
-            message,
-            isUserOnline: userStatus?.user === message.user && userStatus?.online,
-            userCount: room?.participants?.length || 0
-          }))
-        )
-      }
-    },
-    output: 'enricher'
-  };
+  const { data: enrichedMessage, error, status } = useSamsaraTopology<EnrichedMessage>(
+    ChatRoomEnriched,
+    { roomId }
+  );
 
-  const enrichedMessages = useSamsaraTopology<{
-    message: ChatMessage;
-    isUserOnline: boolean;
-    userCount: number;
-  }>(topology);
+  if (status === 'loading') {
+    return (
+      <div style={{ padding: '20px', border: '1px solid #ccc', margin: '10px' }}>
+        <h3>Room: {roomId}</h3>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '20px', border: '1px solid #f00', margin: '10px' }}>
+        <h3>Room: {roomId}</h3>
+        <div style={{ color: 'red' }}>Error: {error.message}</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="chat-room" style={{ border: '1px solid #ccc', padding: 16, marginBottom: 16 }}>
-      <h3>Room: {roomId} ({enrichedMessages?.userCount || 0} users)</h3>
-      {enrichedMessages?.message && (
-        <div className={`message ${enrichedMessages.isUserOnline ? 'online' : 'offline'}`}>
-          <span style={{ fontWeight: 'bold', color: enrichedMessages.isUserOnline ? 'green' : 'gray' }}>{enrichedMessages.message.user}</span>
-          <span style={{ marginLeft: 8 }}>{enrichedMessages.message.text}</span>
-          <span style={{ marginLeft: 8, fontSize: 12 }}>{enrichedMessages.message.timestamp.toLocaleTimeString()}</span>
+    <div style={{ 
+      padding: '20px', 
+      border: '1px solid #ccc', 
+      margin: '10px',
+      borderRadius: '8px',
+      backgroundColor: '#f9f9f9'
+    }}>
+      <h3>Chat Room: {roomId}</h3>
+      <div style={{ marginBottom: '15px', fontSize: '14px', color: '#666' }}>
+        👥 {enrichedMessage?.userCount || 0} participants
+      </div>
+      
+      {enrichedMessage ? (
+        <div style={{ 
+          background: 'white', 
+          padding: '12px', 
+          borderRadius: '6px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        }}>
+          <div style={{ 
+            fontWeight: 'bold', 
+            color: enrichedMessage.isUserOnline ? '#22c55e' : '#9ca3af',
+            marginBottom: '4px'
+          }}>
+            {enrichedMessage.message.user} 
+            <span style={{ fontSize: '12px', marginLeft: '8px' }}>
+              {enrichedMessage.isUserOnline ? '🟢 online' : '⚫ offline'}
+            </span>
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            {enrichedMessage.message.text}
+          </div>
+          <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+            {enrichedMessage.message.timestamp.toLocaleTimeString()}
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: '#9ca3af', fontStyle: 'italic' }}>
+          No messages yet in this room...
         </div>
       )}
     </div>
   );
 }
 
-function UserListComponent() {
-  const [userStatus] = useSamsaraTopic<UserStatus>('user-status');
-  const [room] = useSamsaraTopic<ChatRoom>('chat-rooms');
+function MessageComposer({ roomId }: { roomId: string }) {
+  const [message, setMessage] = useState('');
+  const [user, setUser] = useState('alice');
+  const [, emitMessage] = useSamsaraTopic<ChatMessage>('chat-messages');
+
+  const sendMessage = () => {
+    if (message.trim()) {
+      emitMessage({
+        id: uuidv4(),
+        user,
+        text: message,
+        timestamp: new Date(),
+        room: roomId
+      });
+      setMessage('');
+    }
+  };
+
   return (
-    <div style={{ border: '1px solid #eee', padding: 8, marginBottom: 16 }}>
-      <h4>Users</h4>
-      <ul>
-        {room?.participants.map(user => (
-          <li key={user} style={{ color: userStatus?.user === user && userStatus?.online ? 'green' : 'gray' }}>
-            {user} {userStatus?.user === user && userStatus?.online ? '(online)' : '(offline)'}
-          </li>
-        ))}
-      </ul>
+    <div style={{ 
+      padding: '20px', 
+      border: '1px solid #e5e5e5', 
+      margin: '10px',
+      borderRadius: '8px',
+      backgroundColor: '#fafafa'
+    }}>
+      <h4>Send Message to {roomId}</h4>
+      <div style={{ marginBottom: '10px' }}>
+        <label style={{ marginRight: '10px' }}>
+          User:
+          <select 
+            value={user} 
+            onChange={(e) => setUser(e.target.value)}
+            style={{ marginLeft: '5px', padding: '4px' }}
+          >
+            <option value="alice">Alice</option>
+            <option value="bob">Bob</option>
+            <option value="charlie">Charlie</option>
+          </select>
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: '10px' }}>
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+          placeholder="Type a message..."
+          style={{ 
+            flex: 1, 
+            padding: '8px', 
+            borderRadius: '4px', 
+            border: '1px solid #ccc' 
+          }}
+        />
+        <button 
+          onClick={sendMessage}
+          style={{ 
+            padding: '8px 16px', 
+            borderRadius: '4px', 
+            border: 'none', 
+            background: '#3b82f6', 
+            color: 'white',
+            cursor: 'pointer'
+          }}
+        >
+          Send
+        </button>
+      </div>
     </div>
   );
 }
 
-function MessageComposer({ roomId }: { roomId: string }) {
-  const [text, setText] = useState('');
-  const [user] = useSamsaraTopic<UserStatus>('user-status');
-  const [, emitMessage] = useSamsaraTopic<ChatMessage>('chat-messages');
+function UserStatusController() {
+  const [, emitUserStatus] = useSamsaraTopic<UserStatus>('user-status');
 
-  const sendMessage = () => {
-    if (!text.trim() || !user?.user) return;
-    emitMessage({
-      id: uuidv4(),
-      user: user.user,
-      text,
-      timestamp: new Date(),
-      room: roomId
+  const toggleUserStatus = (user: string, online: boolean) => {
+    emitUserStatus({
+      user,
+      online,
+      lastSeen: new Date()
     });
-    setText('');
   };
 
   return (
-    <div style={{ marginTop: 16 }}>
-      <input value={text} onChange={e => setText(e.target.value)} placeholder="Type a message..." style={{ width: '70%' }} />
-      <button onClick={sendMessage} style={{ marginLeft: 8 }}>Send</button>
+    <div style={{ 
+      padding: '20px', 
+      border: '1px solid #e5e5e5', 
+      margin: '10px',
+      borderRadius: '8px',
+      backgroundColor: '#f0f9ff'
+    }}>
+      <h4>User Status Controls</h4>
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        {['alice', 'bob', 'charlie'].map(user => (
+          <div key={user} style={{ display: 'flex', gap: '5px' }}>
+            <span style={{ minWidth: '60px' }}>{user}:</span>
+            <button 
+              onClick={() => toggleUserStatus(user, true)}
+              style={{ 
+                padding: '4px 8px', 
+                borderRadius: '4px', 
+                border: 'none', 
+                background: '#22c55e', 
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              Online
+            </button>
+            <button 
+              onClick={() => toggleUserStatus(user, false)}
+              style={{ 
+                padding: '4px 8px', 
+                borderRadius: '4px', 
+                border: 'none', 
+                background: '#ef4444', 
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              Offline
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function App() {
+  // Seed data on component mount
+  React.useEffect(() => {
+    seedData();
+  }, []);
+
   return (
     <SamsaraBusProvider bus={bus}>
-      <div style={{ maxWidth: 600, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
-        <h2>Chat Example (Samsara Bus React)</h2>
-        <ChatRoomComponent roomId="general" />
-        <UserListComponent />
-        <MessageComposer roomId="general" />
+      <div style={{ 
+        fontFamily: 'Arial, sans-serif', 
+        maxWidth: '1200px', 
+        margin: '0 auto',
+        padding: '20px'
+      }}>
+        <header style={{ 
+          textAlign: 'center', 
+          marginBottom: '30px',
+          paddingBottom: '20px',
+          borderBottom: '2px solid #e5e5e5'
+        }}>
+          <h1 style={{ color: '#1f2937', marginBottom: '10px' }}>
+            🚌 Samsara Bus React - Fluent API Demo
+          </h1>
+          <p style={{ color: '#6b7280', fontSize: '16px' }}>
+            Real-time chat application showcasing the new TypeScript-first topology API
+          </p>
+        </header>
+
+        <div style={{ 
+          display: 'grid', 
+          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))'
+        }}>
+          <ChatRoomComponent roomId="general" />
+          <ChatRoomComponent roomId="dev-team" />
+        </div>
+
+        <UserStatusController />
+        
+        <div style={{ 
+          display: 'grid', 
+          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))'
+        }}>
+          <MessageComposer roomId="general" />
+          <MessageComposer roomId="dev-team" />
+        </div>
+
+        <footer style={{ 
+          textAlign: 'center', 
+          marginTop: '40px',
+          paddingTop: '20px',
+          borderTop: '1px solid #e5e5e5',
+          color: '#6b7280',
+          fontSize: '14px'
+        }}>
+          <p>
+            This demo shows how the new fluent API provides type-safe, reusable, 
+            and composable stream processing with zero boilerplate. 
+          </p>
+          <p>
+            Try sending messages and toggling user status to see real-time updates!
+          </p>
+        </footer>
       </div>
     </SamsaraBusProvider>
   );

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Observable, combineLatest, EMPTY, zip, merge, of } from 'rxjs';
 import { withLatestFrom, map, filter, catchError } from 'rxjs/operators';
-import { useSamsaraBus } from '../context/samsara-bus-context';
-import { TopologyInstance, SKIP, TopologyExecutionContext, ParameterDefinition, TopologyCombiner } from '../types';
+import { useSamsaraBus } from './context/samsara-bus-context';
+import { TopologyInstance, UseTopologyResult, SKIP, TopologyExecutionContext } from './types';
+import { TopologyCombiner } from './types';
 
 // Helper function to compare parameter objects
 function areParamsEqual(a: Record<string, any>, b: Record<string, any>): boolean {
@@ -18,16 +19,10 @@ function areParamsEqual(a: Record<string, any>, b: Record<string, any>): boolean
   return true;
 }
 
-export interface UseSamsaraTopologyResult<T> {
-  data: T | undefined;
-  error: Error | undefined;
-  status: 'idle' | 'loading' | 'success' | 'error';
-}
-
-export function useSamsaraTopology<T = any>(
+export function useTopology<T = any>(
   topology: TopologyInstance,
   params: Record<string, any> = {}
-): UseSamsaraTopologyResult<T> {
+): UseTopologyResult<T> {
   const bus = useSamsaraBus();
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
@@ -43,11 +38,11 @@ export function useSamsaraTopology<T = any>(
     return params;
   }, [params]);
 
-  // Validate parameters - use stable params reference
+  // Validate parameters
   const validatedParams = useMemo(() => {
     const validated: Record<string, any> = {};
     
-    for (const [paramName, paramDef] of Object.entries(topology.paramTypes) as [string, ParameterDefinition][]) {
+    for (const [paramName, paramDef] of Object.entries(topology.paramTypes)) {
       const value = stableParams[paramName];
       if (value === undefined) {
         throw new Error(`Missing required parameter: ${paramName}`);
@@ -83,7 +78,7 @@ export function useSamsaraTopology<T = any>(
           // Handle processor nodes
           else if (topology.processors[nodeId]) {
             const processor = topology.processors[nodeId];
-            const inputStreams = processor.inputs.map((inputId: string) => context.createObservable(inputId));
+            const inputStreams = processor.inputs.map(inputId => context.createObservable(inputId));
             const combinedInput = context.combineInputs(inputStreams, processor.combiner);
             
             stream = combinedInput.pipe(
